@@ -1,0 +1,506 @@
+-- Script de Tool de Teleporte para Roblox
+-- Tool sem notificações com imagem
+
+-- Executar remote de Wear no início
+task.spawn(function()
+    wait(1)
+    local success, err = pcall(function()
+        local args = {
+            [1] = 87000744418491
+        }
+        game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("Wear"):InvokeServer(unpack(args))
+    end)
+    if not success then
+        warn("Erro ao executar Wear remote:", err)
+    end
+end)
+
+wait(0.5)
+
+-- Services
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local LocalPlayer = Players.LocalPlayer
+
+-- Configurações
+local TELEPORT_DISTANCE = 1 -- Distância atrás do jogador (em studs)
+local TELEPORT_SOUND_ID = 7556335411 -- Som do teleporte
+
+-- Variables
+local buggedPlayers = {}
+local bugConnections = {}
+local Remote = ReplicatedStorage.RE:FindFirstChild("1Gu1n")
+
+-- ======================
+-- SISTEMA DE SOM
+-- ======================
+local function PlayServerAudio(ID)
+    if type(ID) ~= "number" then return end
+    local ev = ReplicatedStorage:FindFirstChild("RE")
+    if ev and ev:FindFirstChild("1Gu1nSound1s") then
+        ev["1Gu1nSound1s"]:FireServer(Workspace, ID, 1)
+    end
+end
+
+local function PlayLocalAudio(ID)
+    if type(ID) ~= "number" then return end
+    
+    local char = LocalPlayer.Character
+    if not char then return end
+    
+    local sound = Instance.new("Sound")
+    sound.SoundId = "rbxassetid://" .. ID
+    sound.Volume = 1
+    sound.Parent = char:FindFirstChild("HumanoidRootPart") or char:WaitForChild("Head")
+    sound:Play()
+    
+    sound.Ended:Connect(function()
+        sound:Destroy()
+    end)
+    
+    task.delay(10, function()
+        if sound and sound.Parent then
+            sound:Destroy()
+        end
+    end)
+    
+    return sound
+end
+
+local function PlayTeleportSound()
+    PlayServerAudio(TELEPORT_SOUND_ID)
+    return PlayLocalAudio(TELEPORT_SOUND_ID)
+end
+
+-- ======================
+-- SISTEMA DE BUG
+-- ======================
+local function bugPlayer(targetPlayer)
+    if not Remote then
+        return
+    end
+    
+    if not targetPlayer or not targetPlayer.Character then
+        return
+    end
+    
+    local playerName = targetPlayer.Name
+    
+    -- Se já está bugado, parar o bug
+    if buggedPlayers[playerName] then
+        if bugConnections[playerName] then
+            bugConnections[playerName]:Disconnect()
+            bugConnections[playerName] = nil
+        end
+        buggedPlayers[playerName] = nil
+        return
+    end
+    
+    -- Aplicar bug
+    buggedPlayers[playerName] = true
+    
+    -- Conexão para aplicar o bug continuamente
+    bugConnections[playerName] = RunService.Stepped:Connect(function()
+        local target = Players:FindFirstChild(playerName)
+        
+        if not target or not target.Character or not target.Character:FindFirstChild("HumanoidRootPart") then
+            if bugConnections[playerName] then
+                bugConnections[playerName]:Disconnect()
+                bugConnections[playerName] = nil
+            end
+            buggedPlayers[playerName] = nil
+            return
+        end
+        
+        local crazyVector = Vector3.new(
+            math.random(1e14, 1e15),
+            math.random(1e14, 1e15),
+            math.random(1e14, 1e15)
+        )
+        
+        local args = {
+            [1] = target.Character.HumanoidRootPart,
+            [2] = target.Character.HumanoidRootPart,
+            [3] = crazyVector,
+            [4] = target.Character.HumanoidRootPart.Position,
+            [5] = LocalPlayer.Backpack:FindFirstChild("Assault") and LocalPlayer.Backpack.Assault:FindFirstChild("GunScript_Local") and LocalPlayer.Backpack.Assault.GunScript_Local:FindFirstChild("MuzzleEffect"),
+            [6] = LocalPlayer.Backpack:FindFirstChild("Assault") and LocalPlayer.Backpack.Assault:FindFirstChild("GunScript_Local") and LocalPlayer.Backpack.Assault.GunScript_Local:FindFirstChild("HitEffect"),
+            [7] = 0,
+            [8] = 0,
+            [9] = { [1] = false },
+            [10] = {
+                [1] = 25,
+                [2] = Vector3.new(100, 100, 100),
+                [3] = BrickColor.new(29),
+                [4] = 0.25,
+                [5] = Enum.Material.SmoothPlastic,
+                [6] = 0.25
+            },
+            [11] = true,
+            [12] = false
+        }
+        
+        Remote:FireServer(unpack(args))
+    end)
+end
+
+-- ======================
+-- CRIAÇÃO DA TOOL
+-- ======================
+local tool = Instance.new("Tool")
+tool.Name = "Teleport Tool"
+tool.RequiresHandle = false
+tool.CanBeDropped = false
+tool.TextureId = "rbxassetid://14302016742"
+
+-- ======================
+-- FUNÇÕES DE TELEPORTE
+-- ======================
+
+-- Função para teleportar atrás do jogador alvo
+local function teleportBehindPlayer(targetPlayer)
+    local character = LocalPlayer.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then
+        return false
+    end
+    
+    if not targetPlayer.Character or not targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        return false
+    end
+    
+    local targetRoot = targetPlayer.Character.HumanoidRootPart
+    local playerRoot = character.HumanoidRootPart
+    
+    -- Calcula a posição atrás do jogador alvo
+    local targetLookVector = targetRoot.CFrame.LookVector
+    local behindPosition = targetRoot.Position - (targetLookVector * TELEPORT_DISTANCE)
+    
+    -- Teleporta o jogador olhando para o alvo
+    playerRoot.CFrame = CFrame.new(behindPosition, targetRoot.Position)
+    
+    -- Tocar som de teleporte
+    PlayTeleportSound()
+    
+    return true
+end
+
+-- Função para detectar player clicado
+local function getPlayerFromMouse(mouse)
+    local target = mouse.Target
+    if not target then return nil end
+    
+    -- Procurar o character pai
+    local character = target.Parent
+    local attempts = 0
+    
+    while character and not character:FindFirstChild("Humanoid") and attempts < 10 do
+        character = character.Parent
+        attempts = attempts + 1
+    end
+    
+    if character and character:FindFirstChild("Humanoid") then
+        return Players:GetPlayerFromCharacter(character)
+    end
+    
+    return nil
+end
+
+-- ======================
+-- EVENTOS DA TOOL
+-- ======================
+
+tool.Equipped:Connect(function(mouse)
+    -- Mudar cursor
+    mouse.Icon = "rbxasset://textures/GunCursor.png"
+    
+    -- Evento de clique
+    mouse.Button1Down:Connect(function()
+        local targetPlayer = getPlayerFromMouse(mouse)
+        
+        if targetPlayer and targetPlayer ~= LocalPlayer then
+            -- Teleportar
+            local success = teleportBehindPlayer(targetPlayer)
+            if success then
+                -- Aplicar bug
+                bugPlayer(targetPlayer)
+            end
+        end
+    end)
+end)
+
+tool.Unequipped:Connect(function()
+    -- Não fazer nada ao desequipar (manter a skin)
+end)
+
+-- ======================
+-- COMANDOS DE CHAT
+-- ======================
+
+local function stopAllBugs()
+    for playerName, connection in pairs(bugConnections) do
+        if connection then
+            connection:Disconnect()
+        end
+    end
+    bugConnections = {}
+    buggedPlayers = {}
+end
+
+LocalPlayer.Chatted:Connect(function(message)
+    local msg = message:lower()
+    
+    if msg:match("^/setdistance %d+$") then
+        local newDistance = tonumber(msg:match("%d+"))
+        if newDistance and newDistance > 0 and newDistance <= 20 then
+            TELEPORT_DISTANCE = newDistance
+        end
+    elseif msg == "/stopallbugs" then
+        stopAllBugs()
+    end
+end)
+
+-- Limpeza automática quando players saem
+Players.PlayerRemoving:Connect(function(player)
+    local playerName = player.Name
+    if bugConnections[playerName] then
+        bugConnections[playerName]:Disconnect()
+        bugConnections[playerName] = nil
+    end
+    if buggedPlayers[playerName] then
+        buggedPlayers[playerName] = nil
+    end
+end)
+
+-- ======================
+-- ADICIONAR TOOL AO INVENTÁRIO
+-- ======================
+
+tool.Parent = LocalPlayer.Backpack
+
+-- Script de Tool Chamar Atenção para Roblox
+-- Tool que apenas toca som ao clicar
+
+wait(0.5)
+
+-- Services
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local LocalPlayer = Players.LocalPlayer
+
+-- Configurações
+local ATTENTION_SOUND_ID = 150185006 -- Som de chamar atenção
+
+-- ======================
+-- SISTEMA DE SOM
+-- ======================
+local function PlayServerAudio(ID)
+    if type(ID) ~= "number" then return end
+    local ev = ReplicatedStorage:FindFirstChild("RE")
+    if ev and ev:FindFirstChild("1Gu1nSound1s") then
+        ev["1Gu1nSound1s"]:FireServer(Workspace, ID, 1)
+    end
+end
+
+local function PlayLocalAudio(ID)
+    if type(ID) ~= "number" then return end
+    
+    local char = LocalPlayer.Character
+    if not char then return end
+    
+    local sound = Instance.new("Sound")
+    sound.SoundId = "rbxassetid://" .. ID
+    sound.Volume = 1
+    sound.Parent = char:FindFirstChild("HumanoidRootPart") or char:WaitForChild("Head")
+    sound:Play()
+    
+    sound.Ended:Connect(function()
+        sound:Destroy()
+    end)
+    
+    task.delay(10, function()
+        if sound and sound.Parent then
+            sound:Destroy()
+        end
+    end)
+    
+    return sound
+end
+
+local function PlayAttentionSound()
+    PlayServerAudio(ATTENTION_SOUND_ID)
+    return PlayLocalAudio(ATTENTION_SOUND_ID)
+end
+
+-- ======================
+-- CRIAÇÃO DA TOOL
+-- ======================
+local tool = Instance.new("Tool")
+tool.Name = "Chamar Atenção"
+tool.RequiresHandle = false
+tool.CanBeDropped = false
+
+-- ======================
+-- EVENTOS DA TOOL
+-- ======================
+
+tool.Equipped:Connect(function(mouse)
+    -- Mudar cursor
+    mouse.Icon = "rbxasset://textures/GunCursor.png"
+    
+    -- Evento de clique
+    mouse.Button1Down:Connect(function()
+        -- Tocar som de atenção
+        PlayAttentionSound()
+    end)
+end)
+
+tool.Unequipped:Connect(function()
+    -- Não fazer nada ao desequipar
+end)
+
+-- ======================
+-- ADICIONAR TOOL AO INVENTÁRIO
+-- ======================
+
+tool.Parent = LocalPlayer.Backpack
+
+-- Script de Tools de Controle de Movimento para Roblox
+-- Duas tools: Parar de Andar e Voltar a Andar
+
+wait(0.5)
+
+-- Services
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+-- ======================
+-- TOOL 1: PARAR DE ANDAR
+-- ======================
+local toolStop = Instance.new("Tool")
+toolStop.Name = "Parar de Andar"
+toolStop.RequiresHandle = false
+toolStop.CanBeDropped = false
+
+toolStop.Equipped:Connect(function(mouse)
+    mouse.Icon = "rbxasset://textures/GunCursor.png"
+    
+    mouse.Button1Down:Connect(function()
+        local character = LocalPlayer.Character
+        if character and character:FindFirstChild("Humanoid") then
+            local humanoid = character.Humanoid
+            
+            -- Parar de andar completamente
+            humanoid.WalkSpeed = 0
+            humanoid.JumpPower = 0
+            humanoid.JumpHeight = 0
+        end
+    end)
+end)
+
+toolStop.Unequipped:Connect(function()
+    -- Não fazer nada ao desequipar
+end)
+
+-- ======================
+-- TOOL 2: VOLTAR A ANDAR
+-- ======================
+local toolWalk = Instance.new("Tool")
+toolWalk.Name = "Voltar a Andar"
+toolWalk.RequiresHandle = false
+toolWalk.CanBeDropped = false
+
+toolWalk.Equipped:Connect(function(mouse)
+    mouse.Icon = "rbxasset://textures/GunCursor.png"
+    
+    mouse.Button1Down:Connect(function()
+        local character = LocalPlayer.Character
+        if character and character:FindFirstChild("Humanoid") then
+            local humanoid = character.Humanoid
+            
+            -- Voltar velocidades normais
+            humanoid.WalkSpeed = 16
+            humanoid.JumpPower = 50
+            humanoid.JumpHeight = 7.2
+        end
+    end)
+end)
+
+toolWalk.Unequipped:Connect(function()
+    -- Não fazer nada ao desequipar
+end)
+
+-- ======================
+-- ADICIONAR TOOLS AO INVENTÁRIO
+-- ======================
+
+toolStop.Parent = LocalPlayer.Backpack
+toolWalk.Parent = LocalPlayer.Backpack
+
+-- Script de Tool de Teleporte por Clique para Roblox
+-- Teleporta para onde você clicar
+
+wait(0.5)
+
+-- Services
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+-- ======================
+-- CRIAÇÃO DA TOOL
+-- ======================
+local tool = Instance.new("Tool")
+tool.Name = "Teleporte Clique"
+tool.RequiresHandle = false
+tool.CanBeDropped = false
+
+-- ======================
+-- FUNÇÃO DE TELEPORTE
+-- ======================
+local function teleportToPosition(position)
+    local character = LocalPlayer.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then
+        return false
+    end
+    
+    local humanoidRootPart = character.HumanoidRootPart
+    
+    -- Teleportar para a posição clicada (com uma pequena elevação)
+    humanoidRootPart.CFrame = CFrame.new(position + Vector3.new(0, 3, 0))
+    
+    return true
+end
+
+-- ======================
+-- EVENTOS DA TOOL
+-- ======================
+
+tool.Equipped:Connect(function(mouse)
+    -- Mudar cursor
+    mouse.Icon = "rbxasset://textures/GunCursor.png"
+    
+    -- Evento de clique
+    mouse.Button1Down:Connect(function()
+        local target = mouse.Target
+        
+        if target then
+            -- Pegar a posição onde clicou
+            local hitPosition = mouse.Hit.Position
+            
+            -- Teleportar para a posição
+            teleportToPosition(hitPosition)
+        end
+    end)
+end)
+
+tool.Unequipped:Connect(function()
+    -- Não fazer nada ao desequipar
+end)
+
+-- ======================
+-- ADICIONAR TOOL AO INVENTÁRIO
+-- ======================
+
+tool.Parent = LocalPlayer.Backpack
